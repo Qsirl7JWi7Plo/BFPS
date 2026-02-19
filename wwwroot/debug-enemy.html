@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Enemy GLB Inspector</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #1a1a2e;
+        color: #eee;
+        font-family: monospace;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+      #info {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 10;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 12px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        line-height: 1.6;
+        max-width: 420px;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      #info h2 {
+        color: #ff6;
+        margin-bottom: 6px;
+      }
+      #info .warn {
+        color: #f66;
+      }
+      #info .ok {
+        color: #6f6;
+      }
+      #controls {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        z-index: 10;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info"><h2>Loading enemy.glb...</h2></div>
+    <div id="controls">
+      Orbit: LMB drag &nbsp;|&nbsp; Zoom: Scroll &nbsp;|&nbsp; Pan: RMB drag<br />
+      <button onclick="toggleWireframe()">Toggle Wireframe</button>
+      <button onclick="toggleSkeleton()">Toggle Skeleton</button>
+      <button onclick="resetCamera()">Reset Camera</button>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
+      import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/controls/OrbitControls.js';
+      import { SkeletonHelper } from 'three';
+
+      // ── Scene setup ─────────────────────────────────────────────
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x2a2a3e);
+
+      const camera = new THREE.PerspectiveCamera(
+        50,
+        innerWidth / innerHeight,
+        0.01,
+        500,
+      );
+      camera.position.set(0, 1.5, 4);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(devicePixelRatio);
+      renderer.setSize(innerWidth, innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 0.9, 0);
+      controls.update();
+
+      // Lighting
+      scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+      dir.position.set(3, 5, 4);
+      scene.add(dir);
+
+      // Grid + axes
+      scene.add(new THREE.GridHelper(10, 20, 0x444466, 0x333355));
+      scene.add(new THREE.AxesHelper(2));
+
+      // ── State ───────────────────────────────────────────────────
+      let loadedModel = null;
+      let skeletonHelper = null;
+      let mixer = null;
+      let wireframeOn = false;
+      const clock = new THREE.Clock();
+
+      // ── Load enemy.glb ──────────────────────────────────────────
+      const loader = new GLTFLoader();
+      loader.load(
+        '/assets/models/characters/enemy.glb',
+        (gltf) => {
+          const model = gltf.scene;
+          loadedModel = model;
+
+          // ── Raw analysis (NO scaling, NO transforms) ────────────
+          const bbox = new THREE.Box3().setFromObject(model);
+          const size = bbox.getSize(new THREE.Vector3());
+          const center = bbox.getCenter(new THREE.Vector3());
+
+          let meshCount = 0,
+            totalVerts = 0,
+            totalTris = 0;
+          let skinCount = 0,
+            boneCount = 0,
+            jointMax = 0;
+          const materialNames = new Set();
+          const nodeTypes = {};
+          let hasNonIdentityRoot = false;
+
+          model.traverse((node) => {
+            const type = node.type || 'Unknown';
+            nodeTypes[type] = (nodeTypes[type] || 0) + 1;
+
+            if (node.isMesh) {
+              meshCount++;
+              const geo = node.geometry;
+              if (geo) {
+                const pos = geo.attributes.position;
+                if (pos) totalVerts += pos.count;
+                if (geo.index) totalTris += geo.index.count / 3;
+                else if (pos) totalTris += pos.count / 3;
+
+                // Check for skinning issues
+                const skinIdx = geo.attributes.skinIndex;
+                const skinWt = geo.attributes.skinWeight;
+                if (skinIdx) {
+                  const arr = skinIdx.array;
+                  for (let i = 0; i < arr.length; i++) {
+                    if (arr[i] > jointMax) jointMax = arr[i];
+                  }
+                }
+              }
+              if (node.material) {
+                const mats = Array.isArray(node.material)
+                  ? node.material
+                  : [node.material];
+                mats.forEach((m) => materialNames.add(m.name || '(unnamed)'));
+              }
+              if (node.isSkinnedMesh) {
+                skinCount++;
+                if (node.skeleton)
+                  boneCount = Math.max(boneCount, node.skeleton.bones.length);
+              }
+            }
+
+            // Check for non-identity transforms on root children
+            if (node.parent === model && node !== model) {
+              const p = node.position;
+              const s = node.scale;
+              const r = node.rotation;
+              if (
+                Math.abs(p.x) > 0.001 ||
+                Math.abs(p.y) > 0.001 ||
+                Math.abs(p.z) > 0.001 ||
+                Math.abs(s.x - 1) > 0.001 ||
+                Math.abs(s.y - 1) > 0.001 ||
+                Math.abs(s.z - 1) > 0.001 ||
+                Math.abs(r.x) > 0.001 ||
+                Math.abs(r.y) > 0.001 ||
+                Math.abs(r.z) > 0.001
+              ) {
+                hasNonIdentityRoot = true;
+              }
+            }
+          });
+
+          // ── Check skeleton binding ──────────────────────────────
+          let skeletonIssues = [];
+          model.traverse((node) => {
+            if (!node.isSkinnedMesh) return;
+            const skel = node.skeleton;
+            if (!skel) {
+              skeletonIssues.push('SkinnedMesh has no skeleton');
+              return;
+            }
+
+            // Check bind matrices
+            const bm = skel.boneInverses;
+            if (!bm || bm.length === 0) {
+              skeletonIssues.push('No bone inverse matrices');
+            }
+
+            // Check for NaN in bind matrices
+            for (let i = 0; i < bm.length; i++) {
+              const els = bm[i].elements;
+              for (let j = 0; j < 16; j++) {
+                if (isNaN(els[j]) || !isFinite(els[j])) {
+                  skeletonIssues.push(
+                    `NaN/Inf in boneInverse[${i}] element ${j}`,
+                  );
+                  break;
+                }
+              }
+            }
+
+            // Check skinIndex references valid bones
+            const skinIdx = node.geometry.attributes.skinIndex;
+            if (skinIdx) {
+              const arr = skinIdx.array;
+              let outOfRange = 0;
+              for (let i = 0; i < arr.length; i++) {
+                if (arr[i] >= skel.bones.length) outOfRange++;
+              }
+              if (outOfRange > 0) {
+                skeletonIssues.push(
+                  `${outOfRange} skinIndex values exceed bone count (${skel.bones.length})`,
+                );
+              }
+            }
+
+            // Check skinWeight sums
+            const skinWt = node.geometry.attributes.skinWeight;
+            if (skinWt) {
+              let zeroWeightVerts = 0;
+              let badSumVerts = 0;
+              for (let i = 0; i < skinWt.count; i++) {
+                const w0 = skinWt.getX(i),
+                  w1 = skinWt.getY(i),
+                  w2 = skinWt.getZ(i),
+                  w3 = skinWt.getW(i);
+                const sum = w0 + w1 + w2 + w3;
+                if (sum < 0.001) zeroWeightVerts++;
+                else if (Math.abs(sum - 1.0) > 0.1) badSumVerts++;
+              }
+              if (zeroWeightVerts > 0)
+                skeletonIssues.push(
+                  `${zeroWeightVerts} verts with zero skin weight`,
+                );
+              if (badSumVerts > 0)
+                skeletonIssues.push(
+                  `${badSumVerts} verts with non-normalized weights (sum != 1)`,
+                );
+            }
+          });
+
+          // ── Build report ────────────────────────────────────────
+          const warn = (t) => `<span class="warn">${t}</span>`;
+          const ok = (t) => `<span class="ok">${t}</span>`;
+
+          let html = `<h2>enemy.glb Inspector</h2>`;
+          html += `<b>Bounding Box:</b><br>`;
+          html += `&nbsp; min: (${bbox.min.x.toFixed(3)}, ${bbox.min.y.toFixed(3)}, ${bbox.min.z.toFixed(3)})<br>`;
+          html += `&nbsp; max: (${bbox.max.x.toFixed(3)}, ${bbox.max.y.toFixed(3)}, ${bbox.max.z.toFixed(3)})<br>`;
+          html += `&nbsp; size: ${size.x.toFixed(3)} x ${size.y.toFixed(3)} x ${size.z.toFixed(3)}<br>`;
+          html += `&nbsp; height: ${size.y.toFixed(3)} ${size.y > 100 ? warn('⚠ HUGE') : size.y < 0.1 ? warn('⚠ TINY') : ok('✓')}<br>`;
+          html += `<br><b>Geometry:</b><br>`;
+          html += `&nbsp; Meshes: ${meshCount}, Verts: ${totalVerts.toLocaleString()}, Tris: ${totalTris.toLocaleString()}<br>`;
+          html += `&nbsp; Skinned meshes: ${skinCount}, Bones: ${boneCount}, Max joint idx: ${jointMax}<br>`;
+          html += `&nbsp; Materials: ${[...materialNames].join(', ')}<br>`;
+          html += `<br><b>Node types:</b><br>`;
+          for (const [t, c] of Object.entries(nodeTypes))
+            html += `&nbsp; ${t}: ${c}<br>`;
+
+          html += `<br><b>Root transforms:</b> ${hasNonIdentityRoot ? warn('⚠ Non-identity') : ok('✓ Clean')}<br>`;
+
+          // Root scene transform
+          const rs = model.scale;
+          const rp = model.position;
+          html += `&nbsp; Scene scale: (${rs.x.toFixed(4)}, ${rs.y.toFixed(4)}, ${rs.z.toFixed(4)})<br>`;
+          html += `&nbsp; Scene pos: (${rp.x.toFixed(4)}, ${rp.y.toFixed(4)}, ${rp.z.toFixed(4)})<br>`;
+
+          html += `<br><b>Skeleton health:</b><br>`;
+          if (skeletonIssues.length === 0) {
+            html += `&nbsp; ${ok('✓ No issues detected')}<br>`;
+          } else {
+            for (const issue of skeletonIssues) {
+              html += `&nbsp; ${warn('⚠ ' + issue)}<br>`;
+            }
+          }
+
+          html += `<br><b>Animations:</b> ${gltf.animations.length}<br>`;
+          for (const clip of gltf.animations) {
+            html += `&nbsp; "${clip.name}" — ${clip.duration.toFixed(2)}s, ${clip.tracks.length} tracks<br>`;
+          }
+
+          // Check for extreme scale in animation tracks
+          let animIssues = [];
+          for (const clip of gltf.animations) {
+            for (const track of clip.tracks) {
+              const vals = track.values;
+              for (let i = 0; i < vals.length; i++) {
+                if (isNaN(vals[i]) || !isFinite(vals[i])) {
+                  animIssues.push(
+                    `NaN/Inf in track "${track.name}" at index ${i}`,
+                  );
+                  break;
+                }
+                if (Math.abs(vals[i]) > 100000) {
+                  animIssues.push(
+                    `Extreme value ${vals[i].toFixed(0)} in track "${track.name}"`,
+                  );
+                  break;
+                }
+              }
+            }
+          }
+          if (animIssues.length > 0) {
+            html += `<br><b>Animation issues:</b><br>`;
+            for (const issue of animIssues.slice(0, 20)) {
+              html += `&nbsp; ${warn('⚠ ' + issue)}<br>`;
+            }
+            if (animIssues.length > 20)
+              html += `&nbsp; ... and ${animIssues.length - 20} more<br>`;
+          }
+
+          document.getElementById('info').innerHTML = html;
+
+          // ── Display model as-is ─────────────────────────────────
+          // Ground it: put feet at y=0
+          model.position.y = -bbox.min.y;
+          scene.add(model);
+
+          // Fit camera
+          const maxDim = Math.max(size.x, size.y, size.z);
+          camera.position.set(0, size.y * 0.5, maxDim * 2.5);
+          controls.target.set(center.x, center.y - bbox.min.y, center.z);
+          controls.update();
+
+          // Skeleton helper
+          model.traverse((node) => {
+            if (node.isSkinnedMesh && node.skeleton) {
+              skeletonHelper = new THREE.SkeletonHelper(model);
+              skeletonHelper.visible = false;
+              scene.add(skeletonHelper);
+            }
+          });
+
+          // Play first animation if available
+          if (gltf.animations.length > 0) {
+            mixer = new THREE.AnimationMixer(model);
+            mixer.clipAction(gltf.animations[0]).play();
+          }
+
+          console.log('enemy.glb loaded', gltf);
+          console.log('Scene graph:', model);
+        },
+        (progress) => {
+          const pct = progress.total
+            ? ((progress.loaded / progress.total) * 100).toFixed(0)
+            : '?';
+          document.getElementById('info').innerHTML =
+            `<h2>Loading enemy.glb... ${pct}%</h2>`;
+        },
+        (err) => {
+          document.getElementById('info').innerHTML =
+            `<h2 class="warn">FAILED to load enemy.glb</h2><pre>${err}</pre>`;
+          console.error(err);
+        },
+      );
+
+      // ── Animation loop ──────────────────────────────────────────
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = clock.getDelta();
+        if (mixer) mixer.update(dt);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      // ── Resize ──────────────────────────────────────────────────
+      window.addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+
+      // ── Global helpers ──────────────────────────────────────────
+      window.toggleWireframe = () => {
+        wireframeOn = !wireframeOn;
+        if (loadedModel) {
+          loadedModel.traverse((node) => {
+            if (node.isMesh && node.material) {
+              const mats = Array.isArray(node.material)
+                ? node.material
+                : [node.material];
+              mats.forEach((m) => {
+                m.wireframe = wireframeOn;
+              });
+            }
+          });
+        }
+      };
+
+      window.toggleSkeleton = () => {
+        if (skeletonHelper) skeletonHelper.visible = !skeletonHelper.visible;
+      };
+
+      window.resetCamera = () => {
+        if (loadedModel) {
+          const bbox = new THREE.Box3().setFromObject(loadedModel);
+          const size = bbox.getSize(new THREE.Vector3());
+          const center = bbox.getCenter(new THREE.Vector3());
+          camera.position.set(
+            0,
+            size.y * 0.5,
+            Math.max(size.x, size.y, size.z) * 2.5,
+          );
+          controls.target.set(center.x, center.y, center.z);
+          controls.update();
+        }
+      };
+    </script>
+  </body>
+</html>

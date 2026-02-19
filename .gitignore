@@ -1,0 +1,71 @@
+node_modules/
+package-lock.json
+
+# Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VS Code / editor
+.vscode/
+.history/
+*.code-workspace
+
+# IDEs
+.idea/
+*.iml
+
+# Node
+node_modules/
+**/node_modules/
+MultiplayerServer/node_modules/
+
+# Build / output
+dist/
+build/
+out/
+publish/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+secrets.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / coverage
+coverage/
+test-results/
+
+# Databases / caches
+*.sqlite
+*.db
+*.pid
+
+# Netlify / local deploy files
+.netlify/
+.netlify/state.json
+
+# Railway / deploy metadata
+.railway/
+
+# Misc
+*.zip
+*.tgz
+*.bak
+*~
+*.swp

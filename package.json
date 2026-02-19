@@ -1,0 +1,16 @@
+{
+  "name": "bfps",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@gltf-transform/core": "^4.3.0",
+    "three": "^0.158.0"
+  }
+}
