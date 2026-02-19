@@ -517,6 +517,33 @@ function gameLoop() {
   // 3b. Animate + move enemies (includes enemy shooting + boss AI)
   view.updateEnemies(dt);
 
+  // 3b-ii. Singleplayer death check (enemy/boss killed you)
+  if (!model.multiplayer && !model.player.alive) {
+    controller.enabled = false;
+    view.showOverlay(
+      `<div style="text-align:center;">` +
+        `<h1 style="color:#ff4444;font-size:40px;">YOU DIED</h1>` +
+        `<p style="font-size:16px;">Respawning in 3 seconds...</p></div>`,
+    );
+    setTimeout(() => {
+      view.hideOverlay();
+      model.player.health = 100;
+      model.player.alive = true;
+      // Respawn at the level start cell
+      const sp = model.cellToWorld(model.startCell.r, model.startCell.c);
+      model.player.x = sp.x;
+      model.player.z = sp.z;
+      controller.enabled = true;
+      document.body.requestPointerLock();
+    }, 3000);
+    // Render the death frame and return so nothing else fires this tick
+    view.syncCamera();
+    view.render();
+    view.updateHUD();
+    view.drawMinimap();
+    return;
+  }
+
   // 3c. Boss spawn check — when all normal enemies are dead, spawn the boss
   if (!bossSpawned && model.enemies.length === 0 && !model.bossLevel) {
     bossSpawned = true;

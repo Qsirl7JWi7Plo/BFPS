@@ -223,15 +223,20 @@ export class GameView {
 
   updateHUD() {
     const m = this.model;
+    const hp = Math.max(0, m.player.health);
+    const hpColor = hp > 60 ? '#0f0' : hp > 30 ? '#ff0' : '#f00';
+    const hpBar = `<span style="color:${hpColor};">${'█'.repeat(Math.ceil(hp / 10))}${'░'.repeat(10 - Math.ceil(hp / 10))}</span> ${hp}`;
     if (m.bossLevel) {
       this._hud.innerHTML =
         `Level: ${m.currentLevel + 1} / ${m.levels.length}<br>` +
         `<span style="color:#ff4444;font-weight:900;">⚠ BOSS FIGHT ⚠</span><br>` +
+        `HP: ${hpBar}<br>` +
         `Score: ${m.score}`;
     } else {
       this._hud.innerHTML =
         `Level: ${m.currentLevel + 1} / ${m.levels.length}<br>` +
         `Enemies: ${m.enemies.length} remaining<br>` +
+        `HP: ${hpBar}<br>` +
         `Score: ${m.score}`;
     }
   }
@@ -967,6 +972,8 @@ export class GameView {
         if (pdx * pdx + pdz * pdz < 1.0 && this.model.player.alive) {
           this.model.player.health -= proj.damage || 8;
           this.model.recordDamage();
+          // Visual feedback: red flash
+          this._flashEnemyDamage();
           if (this.model.player.health <= 0) {
             this.model.player.health = 0;
             this.model.player.alive = false;
@@ -1175,6 +1182,7 @@ export class GameView {
             data.lastShotTime = now;
             this.model.player.health -= 15;
             this.model.recordDamage();
+            this._flashEnemyDamage();
             if (this.model.player.health <= 0) {
               this.model.player.health = 0;
               this.model.player.alive = false;
@@ -1182,21 +1190,27 @@ export class GameView {
           }
         }
       } else {
-        // ── Normal enemy: wander + shoot on sight ──────────
-        if (dist < 0.3) {
-          this._pickNewTarget(data);
-        } else {
-          const step = data.speed;
-          data.enemy.position.x += (dx / dist) * step;
-          data.enemy.position.z += (dz / dist) * step;
-          data.enemy.rotation.y = Math.atan2(dx, dz) + Math.PI;
-        }
+        // ── Normal enemy: wander + stop & shoot on sight ──
+        const canSeePlayer =
+          distToPlayer < this._enemyDetectRange && this.model.player.alive;
 
-        // Shoot at player if within detection range
-        if (distToPlayer < this._enemyDetectRange && this.model.player.alive) {
+        if (canSeePlayer) {
+          // Stop moving — face the player and shoot
+          data.enemy.rotation.y = Math.atan2(toPlayerX, toPlayerZ) + Math.PI;
+
           if (now - data.lastShotTime > this._enemyShotCooldown) {
             data.lastShotTime = now;
             this._enemyShootAt(data.enemy, px, pz);
+          }
+        } else {
+          // Wander toward target
+          if (dist < 0.3) {
+            this._pickNewTarget(data);
+          } else {
+            const step = data.speed;
+            data.enemy.position.x += (dx / dist) * step;
+            data.enemy.position.z += (dz / dist) * step;
+            data.enemy.rotation.y = Math.atan2(dx, dz) + Math.PI;
           }
         }
       }
@@ -1237,6 +1251,24 @@ export class GameView {
       enemyProjectile: true, // Flag: can damage the player
       damage: this._enemyDamage,
     });
+  }
+
+  /**
+   * Flash the screen red when the player is hit by an enemy projectile or boss.
+   * Works in both singleplayer and multiplayer.
+   */
+  _flashEnemyDamage() {
+    if (!this._enemyDmgFlash) {
+      this._enemyDmgFlash = document.createElement('div');
+      this._enemyDmgFlash.style.cssText =
+        'position:fixed;inset:0;background:rgba(255,0,0,0.35);z-index:18;' +
+        'pointer-events:none;opacity:0;transition:opacity 0.15s;';
+      document.body.appendChild(this._enemyDmgFlash);
+    }
+    this._enemyDmgFlash.style.opacity = '1';
+    setTimeout(() => {
+      this._enemyDmgFlash.style.opacity = '0';
+    }, 200);
   }
 
   /**

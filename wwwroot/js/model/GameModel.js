@@ -74,13 +74,13 @@ export class GameModel {
     /** Radius around player that gets revealed on the minimap (in cells) */
     this.fogRadius = 2;
 
-    /** Level definitions — maze grows each level */
+    /** Level definitions — fixed maze size, more enemies each level */
     this.levels = [
       { rows: 6, cols: 6, enemies: 3 },
-      { rows: 8, cols: 8, enemies: 5 },
-      { rows: 10, cols: 10, enemies: 7 },
-      { rows: 12, cols: 12, enemies: 10 },
-      { rows: 14, cols: 14, enemies: 12 },
+      { rows: 6, cols: 6, enemies: 5 },
+      { rows: 6, cols: 6, enemies: 8 },
+      { rows: 6, cols: 6, enemies: 12 },
+      { rows: 6, cols: 6, enemies: 16 },
     ];
     this.currentLevel = 0;
     this.gameWon = false;
