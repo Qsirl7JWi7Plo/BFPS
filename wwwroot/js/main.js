@@ -556,6 +556,14 @@ function gameLoop() {
     );
   }
 
+  // Multiplayer: if player reaches the exit, notify server so their personal level can advance
+  if (model.multiplayer && net.inGame && !model.bossLevel) {
+    if (model.isAtExit() && levelTransitionCooldown <= 0) {
+      net.sendPlayerReachedExit();
+      levelTransitionCooldown = 120; // prevent repeat sends for ~2 seconds
+    }
+  }
+
   // 3d. Multiplayer: send movement & update remote players
   if (model.multiplayer && net.inGame) {
     const p = model.player;

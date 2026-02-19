@@ -1287,6 +1287,48 @@ export class GameView {
   }
 
   /**
+   * Spawn enemies from server-provided positions.
+   * @param {Array<{id:string,x:number,z:number,hp:number}>} enemyDefs
+   */
+  spawnEnemiesFromServer(enemyDefs) {
+    // Clear current enemies
+    for (const e of this.model.enemies.slice()) {
+      this.removeFromScene(e);
+    }
+    this.model.enemies = [];
+    this._enemyData = [];
+
+    if (!enemyDefs || enemyDefs.length === 0) return;
+    for (const ed of enemyDefs) {
+      if (!this._soldierGltf) continue;
+      const enemy = skeletonClone(this._soldierGltf.scene);
+      enemy.scale.setScalar(this._enemyScale || 1);
+      enemy.position.set(ed.x, this._enemyGroundY || 0, ed.z);
+      enemy.rotation.y = Math.PI;
+      enemy.name = ed.id || '';
+      this.scene.add(enemy);
+      this.model.enemies.push(enemy);
+
+      // Animation mixer
+      const clips = this._soldierGltf.animations || [];
+      const runClip = clips.find((c) => /run/i.test(c.name)) || clips[0];
+      const mixer = runClip ? new THREE.AnimationMixer(enemy) : null;
+      if (mixer && runClip) mixer.clipAction(runClip).play();
+
+      this._enemyData.push({
+        enemy,
+        mixer,
+        targetX: enemy.position.x,
+        targetZ: enemy.position.z,
+        speed: 0.02,
+        lastShotTime: 0,
+        isBoss: false,
+        id: ed.id || null,
+      });
+    }
+  }
+
+  /**
    * Spawn the boss enemy — a larger, faster, red-tinted soldier that
    * actively hunts players. The boss has more health visually (bigger model).
    * @param {{ x: number, z: number }} pos

@@ -111,6 +111,22 @@ io.on('connection', (socket) => {
       isCreator: true,
     });
 
+    // If game already started, send this player their persisted level/maze/enemies
+    if (room.state === 'playing') {
+      const p = room.players.get(socket.id);
+      const level = p.level || 0;
+      const perPlayerEnemies =
+        (room.playerEnemies && room.playerEnemies.get(socket.id)) || new Map();
+      const enemies = perPlayerEnemies.get(level) || [];
+      socket.emit('playerLevelAdvanced', {
+        maze: room.maze,
+        startCell: room.startCell,
+        exitCell: room.exitCell,
+        level,
+        enemies,
+      });
+    }
+
     // Broadcast updated room list to everyone
     _broadcastRoomList();
   });
@@ -161,6 +177,57 @@ io.on('connection', (socket) => {
     _broadcastRoomList();
   });
 
+  /* ── Player reached exit (per-player progression in multiplayer) ── */
+  socket.on('playerReachedExit', () => {
+    const roomId = playerRooms.get(socket.id);
+    if (!roomId) return;
+    const room = rooms.get(roomId);
+    if (!room || room.state !== 'playing') return;
+    const player = room.players.get(socket.id);
+    if (!player) return;
+
+    // Advance this player's personal level counter
+    player.level = (player.level || 0) + 1;
+    const level = player.level;
+
+    // Create a new maze for the player's personal progression (same size as room base)
+    const base = LEVELS[Math.min(level, LEVELS.length - 1)] || LEVELS[0];
+    const rows = base.rows;
+    const cols = base.cols;
+    const maze = room.flatArena
+      ? {
+          grid: Array.from({ length: rows }, () =>
+            Array.from({ length: cols }, () => ({
+              north: true,
+              south: true,
+              east: true,
+              west: true,
+            })),
+          ),
+          rows,
+          cols,
+        }
+      : generateMaze(rows, cols);
+    const startCell = { r: 0, c: 0 };
+    const exitCell = { r: rows - 1, c: cols - 1 };
+
+    // Persist enemy placements for this player's new level
+    const count = base.enemies || 5;
+    const enemyPositions = room._generateEnemyPositions(rows, cols, count);
+    const map = room.playerEnemies.get(socket.id) || new Map();
+    map.set(level, enemyPositions);
+    room.playerEnemies.set(socket.id, map);
+
+    // Send the new personal maze + enemy list to the owning player only
+    socket.emit('playerLevelAdvanced', {
+      maze,
+      startCell,
+      exitCell,
+      level,
+      enemies: enemyPositions,
+    });
+  });
+
   /* ── Update weapon (in lobby) ───────────────────────────── */
   socket.on('updateWeapon', (weapon) => {
     const roomId = playerRooms.get(socket.id);
@@ -188,6 +255,25 @@ io.on('connection', (socket) => {
     room.startGame();
 
     io.to(`room:${room.id}`).emit('gameStarted', room.getStartPayload());
+
+    // Send each player their persisted level/maze/enemies so they can be on different levels
+    for (const [id, p] of room.players.entries()) {
+      const level = p.level || 0;
+      const perPlayerEnemies =
+        (room.playerEnemies && room.playerEnemies.get(id)) || new Map();
+      const enemies = perPlayerEnemies.get(level) || [];
+      const sock = io.sockets.sockets.get(id);
+      if (sock) {
+        sock.emit('playerLevelAdvanced', {
+          maze: room.maze,
+          startCell: room.startCell,
+          exitCell: room.exitCell,
+          level,
+          enemies,
+        });
+      }
+    }
+
     _broadcastRoomList();
   });
 
@@ -495,6 +581,19 @@ setInterval(() => {
 
     // Broadcast full game state for reconciliation
     io.to(`room:${room.id}`).emit('gameState', room.getGameState());
+
+    // Also persist and periodically send per-player enemy updates if present
+    if (room.playerEnemies) {
+      for (const [playerId, levelMap] of room.playerEnemies.entries()) {
+        const player = room.players.get(playerId);
+        if (!player) continue;
+        const level = player.level || 0;
+        const enemies = levelMap.get(level) || [];
+        // Send only to the owning player
+        const sock = io.sockets.sockets.get(playerId);
+        if (sock) sock.emit('enemyUpdate', { level, enemies });
+      }
+    }
   }
 }, 50);
 

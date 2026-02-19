@@ -208,6 +208,24 @@ export class NetworkManager {
       if (this.onGameStarted) this.onGameStarted(data);
     });
 
+    // Per-player level advancement from server (personal maze + enemies)
+    s.on('playerLevelAdvanced', (data) => {
+      console.log('[Net] Player level advanced →', data.level);
+      if (data.maze) {
+        // Replace local maze with server-provided maze for this player
+        this.model.applyServerMaze(
+          data.maze,
+          data.startCell,
+          data.exitCell,
+          data.level,
+        );
+      }
+      // Spawn server-provided enemies (client-side visuals/AI)
+      if (this.view && this.view.spawnEnemiesFromServer) {
+        this.view.spawnEnemiesFromServer(data.enemies || []);
+      }
+    });
+
     s.on('playerMoved', (data) => {
       if (!this.inGame) return;
       const np = this.model.networkPlayers.get(data.id);
@@ -440,6 +458,14 @@ export class NetworkManager {
       direction,
       weapon: this.settings.weaponType || 'rifle',
     });
+  }
+
+  /**
+   * Notify server that the local player reached the exit in multiplayer.
+   */
+  sendPlayerReachedExit() {
+    if (!this.socket || !this.connected || !this.inGame) return;
+    this.socket.emit('playerReachedExit');
   }
 
   /**

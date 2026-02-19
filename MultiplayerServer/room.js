@@ -81,7 +81,12 @@ class Room {
       weapon: weapon || 'rifle',
       sprinting: false,
       alive: true,
+      level: 0, // per-player progression level
     };
+    // Initialize per-player enemy storage map
+    if (!this.playerEnemies) this.playerEnemies = new Map();
+    this.playerEnemies.set(id, new Map());
+
     this.players.set(id, player);
     return player;
   }
@@ -209,6 +214,21 @@ class Room {
     // Pre-calculate spaced spawns for ALL maxPlayers slots
     const spawns = this._pickSpacedSpawns(this.maxPlayers, rows, cols);
 
+    // Generate & persist per-player enemy placements for each player's current level
+    for (const [id, player] of this.players) {
+      const level = player.level || 0;
+      const count = LEVELS[Math.min(level, LEVELS.length - 1)].enemies || 5;
+      const enemyPositions = this._generateEnemyPositions(
+        rows,
+        cols,
+        count,
+        spawns,
+      );
+      const map = this.playerEnemies.get(id) || new Map();
+      map.set(level, enemyPositions);
+      this.playerEnemies.set(id, map);
+    }
+
     let i = 0;
     for (const [, player] of this.players) {
       const cell = spawns[i % spawns.length];
@@ -302,6 +322,42 @@ class Room {
     }
 
     return respawned;
+  }
+
+  /**
+   * Generate enemy world positions for a level (server-side placement).
+   * Returns array of { id, x, z, hp }
+   */
+  _generateEnemyPositions(rows, cols, count, spawnCandidates = null) {
+    const positions = [];
+    const cells = [];
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) cells.push({ r, c });
+
+    // Prefer cells away from spawn candidates (if provided)
+    const forbidden = new Set();
+    if (spawnCandidates && spawnCandidates.length) {
+      for (const s of spawnCandidates) {
+        forbidden.add(`${s.r},${s.c}`);
+      }
+    }
+
+    // Shuffle cells
+    for (let i = cells.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cells[i], cells[j]] = [cells[j], cells[i]];
+    }
+
+    let idCounter = 1;
+    for (const cell of cells) {
+      if (positions.length >= count) break;
+      if (forbidden.has(`${cell.r},${cell.c}`)) continue;
+      const w = CELL_SIZE;
+      const world = this._cellToWorld(cell.r, cell.c);
+      positions.push({ id: `e${idCounter++}`, x: world.x, z: world.z, hp: 30 });
+    }
+
+    return positions;
   }
 
   /**
