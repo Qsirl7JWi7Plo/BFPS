@@ -33,8 +33,7 @@ export class Settings {
     this.playerName = 'Player';
 
     /** Multiplayer server URL */
-    this.serverUrl =
-      'https://courteous-compassion-production.up.railway.app:3000';
+    this.serverUrl = 'https://bfps-production.up.railway.app:8080';
 
     // ── Change callbacks ────────────────────────────────────
     /** @type {Function[]} */

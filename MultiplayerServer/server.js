@@ -5,13 +5,29 @@
  */
 
 const { Server } = require('socket.io');
+const http = require('http');
 const { Room } = require('./room.js');
 const { isBlocked, raycastPlayers } = require('./collision.js');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
-const io = new Server(PORT, {
-  cors: { origin: '*' },
+// Create HTTP server for Socket.io and health checks
+const httpServer = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', message: 'BFPS server running' }));
+  } else {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not Found' }));
+  }
+});
+
+const io = new Server(httpServer, {
+  cors: { origin: 'https://bfpstest.netlify.app' },
+});
+
+httpServer.listen(PORT, () => {
+  console.log(`[Server] Listening on port ${PORT}`);
 });
 
 /** @type {Map<string, Room>} roomId → Room */
