@@ -45,6 +45,9 @@ class Room {
     /** Current level index */
     this.currentLevel = 0;
 
+    /** Feature flags */
+    this.flatArena = false; // when true, generate an open arena instead of a maze
+
     /** Maze data — set when game starts */
     this.maze = null;
     this.startCell = null;
@@ -184,7 +187,21 @@ class Room {
    */
   startGame() {
     const { rows, cols } = this._scaledMazeSize();
-    this.maze = generateMaze(rows, cols);
+
+    // If this room is configured as a flat arena, create an 'open' maze
+    if (this.flatArena) {
+      const grid = [];
+      for (let r = 0; r < rows; r++) {
+        grid[r] = [];
+        for (let c = 0; c < cols; c++) {
+          grid[r][c] = { north: true, south: true, east: true, west: true };
+        }
+      }
+      this.maze = { grid, rows, cols };
+    } else {
+      this.maze = generateMaze(rows, cols);
+    }
+
     this.startCell = { r: 0, c: 0 };
     this.exitCell = { r: rows - 1, c: cols - 1 };
     this.state = 'playing';
@@ -310,6 +327,7 @@ class Room {
       maxPlayers: this.maxPlayers,
       state: this.state,
       creatorId: this.creatorId,
+      flatArena: !!this.flatArena,
     };
   }
 

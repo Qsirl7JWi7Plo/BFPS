@@ -36,6 +36,19 @@ export class LobbyView {
 
     // Register network callbacks
     this._bindNetworkEvents();
+
+    // Auto-connect to the configured server so all clients use the same authoritative playserver
+    // (prevents accidental local vs remote mismatches). Falls back to manual connect UI on failure.
+    try {
+      // Delay slightly so UI has time to render connecting state
+      setTimeout(() => {
+        if (!this.net || this.net.connected) return;
+        console.log('[LobbyView] Auto-connecting to', this.settings.serverUrl);
+        this.net.connect(this.settings.serverUrl);
+      }, 50);
+    } catch (e) {
+      /* noop */
+    }
   }
 
   /* ================================================================== */
@@ -247,9 +260,10 @@ export class LobbyView {
         });
 
         const info = document.createElement('div');
+        const extra = room.flatArena ? ' • ARENA' : '';
         info.innerHTML =
           `<div style="font-weight:700;">${this._escHtml(room.name)}</div>` +
-          `<div style="font-size:12px;opacity:0.6;">${room.playerCount}/${room.maxPlayers} players • ${room.state}</div>`;
+          `<div style="font-size:12px;opacity:0.6;">${room.playerCount}/${room.maxPlayers} players • ${room.state}${extra}</div>`;
         item.appendChild(info);
 
         if (room.state === 'waiting' && room.playerCount < room.maxPlayers) {
@@ -380,12 +394,30 @@ export class LobbyView {
     maxGroup.appendChild(maxSelect);
     div.appendChild(maxGroup);
 
+    // Arena checkbox (default: CHECKED for fast multiplayer testing)
+    const arenaGroup = document.createElement('div');
+    arenaGroup.style.cssText =
+      'margin-bottom:12px;display:flex;align-items:center;gap:8px;';
+    const arenaChk = document.createElement('input');
+    arenaChk.type = 'checkbox';
+    arenaChk.id = 'create-arena-chk';
+    arenaChk.checked = true; // <- default checked
+    const arenaLabel = document.createElement('label');
+    arenaLabel.htmlFor = 'create-arena-chk';
+    arenaLabel.style.cssText = 'font-size:13px;opacity:0.85;';
+    arenaLabel.textContent =
+      'Flat arena (no maze) — useful for multiplayer testing';
+    arenaGroup.appendChild(arenaChk);
+    arenaGroup.appendChild(arenaLabel);
+    div.appendChild(arenaGroup);
+
     // Buttons
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:8px;';
     btnRow.appendChild(
       this._makeButton('CREATE', '#00cc44', () => {
-        this.net.createRoom(nameInput.value, parseInt(maxSelect.value));
+        const arena = !!arenaChk.checked;
+        this.net.createRoom(nameInput.value, parseInt(maxSelect.value), arena);
       }),
     );
     btnRow.appendChild(

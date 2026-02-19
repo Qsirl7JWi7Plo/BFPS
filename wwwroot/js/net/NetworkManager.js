@@ -368,9 +368,9 @@ export class NetworkManager {
    * @param {string} name
    * @param {number} maxPlayers
    */
-  createRoom(name, maxPlayers) {
+  createRoom(name, maxPlayers, arena = false) {
     if (!this.socket || !this.connected) return;
-    this.socket.emit('createRoom', { name, maxPlayers });
+    this.socket.emit('createRoom', { name, maxPlayers, arena });
   }
 
   /**

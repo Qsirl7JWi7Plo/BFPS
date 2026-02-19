@@ -134,6 +134,12 @@ export class GameView {
     // ── Preload GLTFs then build level ──────────────────────
     /** @type {Promise<void>} resolves when all models are loaded and level is built */
     this.ready = this._preloadModels().then(() => this.buildLevel());
+
+    // Expose for runtime inspection in browser console (debugging only)
+    try {
+      window.__bfps_gameView = this;
+      console.log('[GameView] exposed as window.__bfps_gameView');
+    } catch (e) {}
   }
 
   /* ════════════════════════════════════════════════════════════ */
@@ -378,6 +384,15 @@ export class GameView {
     this._soldierGltf = soldier;
     this._robotGltf = robot;
     this._weaponGltfs = { rifle, shotgun, pistol };
+
+    // Debug visibility in console
+    try {
+      console.log('[GameView] Models loaded:', {
+        soldier: !!this._soldierGltf,
+        robot: !!this._robotGltf,
+        weapons: Object.keys(this._weaponGltfs || {}),
+      });
+    } catch (e) {}
 
     // ── Compute runtime scale for enemy model ───────────────
     // Instead of baking scale into vertices (which destroys skeleton

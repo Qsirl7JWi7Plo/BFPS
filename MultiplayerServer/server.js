@@ -84,7 +84,7 @@ io.on('connection', (socket) => {
   });
 
   /* ── Create room ────────────────────────────────────────── */
-  socket.on('createRoom', ({ name, maxPlayers }) => {
+  socket.on('createRoom', ({ name, maxPlayers, arena }) => {
     // Leave current room if in one
     _leaveCurrentRoom(socket);
 
@@ -93,6 +93,10 @@ io.on('connection', (socket) => {
       Math.min(maxPlayers || 8, 16),
       socket.id,
     );
+
+    // Optional arena flag: create an open flat arena instead of a maze
+    room.flatArena = !!arena;
+
     rooms.set(room.id, room);
 
     const playerName = playerNames.get(socket.id) || 'Player';
