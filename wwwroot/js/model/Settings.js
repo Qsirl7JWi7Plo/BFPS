@@ -32,6 +32,9 @@ export class Settings {
     /** Player display name (multiplayer) */
     this.playerName = 'Player';
 
+    /** Persistent identifier (survives reloads) */
+    this.playerId = null;
+
     /** Multiplayer server URL */
     this.serverUrl = 'https://bfps-production.up.railway.app';
 
@@ -41,6 +44,16 @@ export class Settings {
 
     // Hydrate from localStorage
     this.load();
+
+    // ensure persistent id exists
+    if (!this.playerId) {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        this.playerId = crypto.randomUUID();
+      } else {
+        this.playerId = 'pid-' + Math.random().toString(36).slice(2);
+      }
+      this.save();
+    }
   }
 
   /* ================================================================ */
@@ -62,6 +75,7 @@ export class Settings {
       projectileColor: this.projectileColor,
       hudAccent: this.hudAccent,
       playerName: this.playerName,
+      playerId: this.playerId,
       serverUrl: this.serverUrl,
     };
     try {
@@ -87,6 +101,7 @@ export class Settings {
       if (data.projectileColor) this.projectileColor = data.projectileColor;
       if (data.hudAccent) this.hudAccent = data.hudAccent;
       if (data.playerName) this.playerName = data.playerName;
+      if (data.playerId) this.playerId = data.playerId;
       if (data.serverUrl) this.serverUrl = data.serverUrl;
     } catch {
       /* corrupt JSON is non-fatal */

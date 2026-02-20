@@ -421,6 +421,18 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 
+// If the page regains visibility while playing, attempt to re‑acquire lock
+document.addEventListener('visibilitychange', () => {
+  if (
+    document.visibilityState === 'visible' &&
+    gameState === 'playing' &&
+    !paused &&
+    !document.pointerLockElement
+  ) {
+    document.body.requestPointerLock();
+  }
+});
+
 /* ================================================================== */
 /*  Game loop                                                          */
 /* ================================================================== */
@@ -567,11 +579,7 @@ function gameLoop() {
         model.exitCell,
       );
     }
-    if (model.isAtExit() && levelTransitionCooldown <= 0) {
-      console.log('[Net] sending playerReachedExit');
-      net.sendPlayerReachedExit();
-      levelTransitionCooldown = 120; // prevent repeat sends for ~2 seconds
-    }
+    // client no longer sends exit notifications; server is authoritative
   }
 
   // 3d. Multiplayer: send movement & update remote players

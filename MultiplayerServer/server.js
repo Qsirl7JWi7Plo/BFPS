@@ -27,10 +27,14 @@ const io = new Server(httpServer, {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`[Server] Listening on port ${PORT}`);
+  console.log(`[DEPLOY] [Server] Listening on port ${PORT}`);
 });
 
 // error hooks to log any uncaught exceptions/rejections
+
+// track disconnect timers for persistent players so short network hiccups
+// don't remove them from the room immediately
+const disconnectTimers = new Map(); // pid -> Timeout
 process.on('uncaughtException', (err) => {
   console.error('[Server] uncaughtException', err, err && err.stack);
 });
@@ -68,14 +72,47 @@ const WEAPON_PELLETS = {
 const SCORE_PLAYER_KILL = 10;
 const SCORE_BOSS_KILL = 50;
 
-console.log(`BFPS Multiplayer Server starting on port ${PORT}...`);
+console.log(`[DEPLOY] BFPS Multiplayer Server starting on port ${PORT}...`);
 
 /* ================================================================== */
 /*  Connection handler                                                 */
 /* ================================================================== */
 
 io.on('connection', (socket) => {
-  console.log(`Player connected: ${socket.id}`);
+  const pid = socket.handshake.query.pid || null;
+  socket.persistentId = pid;
+  // if we had a pending disconnect cleanup, cancel it
+  if (pid && disconnectTimers.has(pid)) {
+    clearTimeout(disconnectTimers.get(pid));
+    disconnectTimers.delete(pid);
+    console.log(`[Server] cancelled cleanup for returning pid=${pid}`);
+  }
+  console.log(
+    `Player connected: ${socket.id}${pid ? ' (pid=' + pid + ')' : ''}`,
+  );
+
+  // attempt to reattach persistent player if they reconnect
+  if (pid) {
+    for (const room of rooms.values()) {
+      for (const [oldId, p] of room.players.entries()) {
+        if (p.persistentId === pid && oldId !== socket.id) {
+          console.log(
+            `[Server] reattaching persistent player ${pid} to new socket ${socket.id}`,
+          );
+          room.players.delete(oldId);
+          playerRooms.delete(oldId);
+          playerNames.delete(oldId);
+
+          p.id = socket.id;
+          room.players.set(socket.id, p);
+          playerRooms.set(socket.id, room.id);
+          playerNames.set(socket.id, p.name);
+          socket.join(`room:${room.id}`);
+          break;
+        }
+      }
+    }
+  }
 
   /* ── Set player name ────────────────────────────────────── */
   socket.on('setName', (name) => {
@@ -108,7 +145,7 @@ io.on('connection', (socket) => {
     rooms.set(room.id, room);
 
     const playerName = playerNames.get(socket.id) || 'Player';
-    room.addPlayer(socket.id, playerName, 'rifle');
+    room.addPlayer(socket.id, playerName, 'rifle', socket.persistentId);
     playerRooms.set(socket.id, room.id);
     socket.join(`room:${room.id}`);
 
@@ -159,7 +196,7 @@ io.on('connection', (socket) => {
     _leaveCurrentRoom(socket);
 
     const playerName = playerNames.get(socket.id) || 'Player';
-    room.addPlayer(socket.id, playerName, 'rifle');
+    room.addPlayer(socket.id, playerName, 'rifle', socket.persistentId);
     playerRooms.set(socket.id, room.id);
     socket.join(`room:${room.id}`);
 
@@ -194,45 +231,15 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (!player) return;
 
-    // Advance this player's personal level counter
-    player.level = (player.level || 0) + 1;
-    const level = player.level;
+    // guard against duplicates – server move/periodic code handles this too
+    if (player._exitTriggered) return;
+    player._exitTriggered = true;
+    console.log(
+      `[Server] player ${socket.id} (pid=${player.persistentId || '?'}) signalled exit`,
+    );
 
-    // Create a new maze for the player's personal progression (same size as room base)
-    const base = LEVELS[Math.min(level, LEVELS.length - 1)] || LEVELS[0];
-    const rows = base.rows;
-    const cols = base.cols;
-    const maze = room.flatArena
-      ? {
-          grid: Array.from({ length: rows }, () =>
-            Array.from({ length: cols }, () => ({
-              north: true,
-              south: true,
-              east: true,
-              west: true,
-            })),
-          ),
-          rows,
-          cols,
-        }
-      : generateMaze(rows, cols);
-    const startCell = { r: 0, c: 0 };
-    const exitCell = { r: rows - 1, c: cols - 1 };
-
-    // Persist enemy placements for this player's new level
-    const count = base.enemies || 5;
-    const enemyPositions = room._generateEnemyPositions(rows, cols, count);
-    const map = room.playerEnemies.get(socket.id) || new Map();
-    map.set(level, enemyPositions);
-    room.playerEnemies.set(socket.id, map);
-
-    // Send the new personal maze + enemy list to the owning player only
-    socket.emit('playerLevelAdvanced', {
-      maze,
-      startCell,
-      exitCell,
-      level,
-      enemies: enemyPositions,
+    room.advancePlayerLevel(socket.id, (pid, payload) => {
+      io.to(pid).emit('playerLevelAdvanced', payload);
     });
   });
 
@@ -336,7 +343,7 @@ io.on('connection', (socket) => {
       // Detect exit crossing server-side to avoid client race
       if (room._isExitPos(player.x, player.z)) {
         console.log(
-          `[Server] player ${socket.id} hit exit at`,
+          `[Server] player ${socket.id}${player.persistentId ? ' (pid=' + player.persistentId + ')' : ''} hit exit at`,
           player.x.toFixed(2),
           player.z.toFixed(2),
         );
@@ -544,10 +551,27 @@ io.on('connection', (socket) => {
 
   /* ── Disconnect ─────────────────────────────────────────── */
   socket.on('disconnect', () => {
-    console.log(`Player disconnected: ${socket.id}`);
-    _leaveCurrentRoom(socket);
-    playerNames.delete(socket.id);
-    _broadcastRoomList();
+    console.log(
+      `Player disconnected: ${socket.id}${socket.persistentId ? ' (pid=' + socket.persistentId + ')' : ''}`,
+    );
+    if (socket.persistentId) {
+      // delay actual removal in case they reconnect quickly
+      const pid = socket.persistentId;
+      const timer = setTimeout(() => {
+        console.log(
+          `[Server] cleanup stale player pid=${pid} socket=${socket.id}`,
+        );
+        _leaveCurrentRoom(socket);
+        playerNames.delete(socket.id);
+        _broadcastRoomList();
+        disconnectTimers.delete(pid);
+      }, 15000); // 15 seconds grace
+      disconnectTimers.set(pid, timer);
+    } else {
+      _leaveCurrentRoom(socket);
+      playerNames.delete(socket.id);
+      _broadcastRoomList();
+    }
   });
 });
 
@@ -611,8 +635,9 @@ setInterval(() => {
 
     // Periodic exit check (in case move event wasn't triggered)
     for (const [pid, pl] of room.players.entries()) {
-      if (pl.alive && room._isExitPos(pl.x, pl.z)) {
+      if (pl.alive && !pl._exitTriggered && room._isExitPos(pl.x, pl.z)) {
         console.log(`[Server] periodic exit hit for ${pid}`);
+        pl._exitTriggered = true;
         room.advancePlayerLevel(pid, (playerId, payload) => {
           io.to(playerId).emit('playerLevelAdvanced', payload);
         });

@@ -66,7 +66,7 @@ class Room {
    * @param {string} weapon
    * @returns {PlayerState}
    */
-  addPlayer(id, name, weapon) {
+  addPlayer(id, name, weapon, persistentId = null) {
     const player = {
       id,
       name: name || 'Player',
@@ -82,6 +82,7 @@ class Room {
       sprinting: false,
       alive: true,
       level: 0, // per-player progression level
+      persistentId,
     };
     // Initialize per-player enemy storage map
     if (!this.playerEnemies) this.playerEnemies = new Map();
@@ -279,6 +280,14 @@ class Room {
 
     // Prefer a cell that is SPAWN_SPACING away from all living players
     for (const cell of cells) {
+      // avoid exit cell (respawn should not put you straight on the gate)
+      if (
+        this.exitCell &&
+        cell.r === this.exitCell.r &&
+        cell.c === this.exitCell.c
+      ) {
+        continue;
+      }
       const tooClose = occupied.some(
         (o) => Math.abs(o.r - cell.r) + Math.abs(o.c - cell.c) < SPAWN_SPACING,
       );
@@ -435,6 +444,16 @@ class Room {
       : generateMaze(rows, cols);
     const startCell = { r: 0, c: 0 };
     const exitCell = { r: rows - 1, c: cols - 1 };
+
+    // teleport player to new start position immediately and mark exit flag
+    const world = this._cellToWorld(startCell.r, startCell.c);
+    player.x = world.x;
+    player.z = world.z;
+    player.y = 2;
+    player.yaw = 0;
+    player.pitch = 0;
+    player._exitTriggered = true;
+
     const count = base.enemies || 5;
     const enemyPositions = this._generateEnemyPositions(rows, cols, count);
     const map = this.playerEnemies.get(playerId) || new Map();

@@ -114,7 +114,10 @@ export class NetworkManager {
     const s = this.socket;
 
     s.on('connect', () => {
-      console.log(`[Net] Connected as ${s.id}`);
+      console.log(
+        `[Net] Connected as ${s.id}` +
+          (this.settings.playerId ? ` (pid=${this.settings.playerId})` : ''),
+      );
       this.connected = true;
       this.localId = s.id;
 
@@ -256,6 +259,11 @@ export class NetworkManager {
       if (this.view && this.view.spawnEnemiesFromServer) {
         this.view.spawnEnemiesFromServer(data.enemies || []);
       }
+
+      // always request pointerlock after teleporting/level-up
+      try {
+        document.body.requestPointerLock();
+      } catch {}
     });
 
     s.on('playerMoved', (data) => {

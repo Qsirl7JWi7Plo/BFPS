@@ -735,6 +735,28 @@ export class MenuView {
     this._subContainer.style.width = '440px';
     this._subContainer.style.maxHeight = '450px';
 
+    // server URL input so player can switch servers without reloading
+    const urlGroup = document.createElement('div');
+    urlGroup.style.cssText = 'margin-bottom:8px;';
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.value = this.settings.serverUrl;
+    urlInput.placeholder = 'Server URL';
+    urlInput.style.cssText =
+      'width:100%;padding:6px;background:rgba(0,0,0,0.4);border:1px solid #555;color:white;font-size:13px;box-sizing:border-box;';
+    urlInput.addEventListener('change', () => {
+      this.settings.serverUrl = urlInput.value;
+      this.settings.save();
+    });
+    urlGroup.appendChild(urlInput);
+    this._subContainer.appendChild(urlGroup);
+
+    const connectBtn = this._makeButton('CONNECT', '#00cc44', () => {
+      this.net.disconnect();
+      this.net.connect(this.settings.serverUrl);
+    });
+    this._subContainer.appendChild(connectBtn);
+
     if (this._lobbyView) {
       this._lobbyView.setContainer(this._subContainer);
     } else {

@@ -39,6 +39,7 @@ export class LobbyView {
 
     // Auto-connect to the configured server so all clients use the same authoritative playserver
     // (prevents accidental local vs remote mismatches). Falls back to manual connect UI on failure.
+    // note: server URL may be changed via menu if desired.
     try {
       // Delay slightly so UI has time to render connecting state
       setTimeout(() => {
