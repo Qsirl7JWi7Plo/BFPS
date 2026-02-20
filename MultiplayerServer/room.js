@@ -83,7 +83,13 @@ class Room {
       alive: true,
       level: 0, // per-player progression level
       persistentId,
+      // exitPos is world coords of current exit cell for this player
+      exitPos: null,
     };
+    // set initial exitPos to room exit
+    if (this.exitCell) {
+      player.exitPos = this._cellToWorld(this.exitCell.r, this.exitCell.c);
+    }
     // Initialize per-player enemy storage map
     if (!this.playerEnemies) this.playerEnemies = new Map();
     this.playerEnemies.set(id, new Map());
@@ -403,14 +409,16 @@ class Room {
    * @param {number} z
    * @returns {boolean}
    */
-  _isExitPos(x, z) {
-    if (!this.exitCell || !this.maze) return false;
-    const r = Math.floor(z / CELL_SIZE);
-    const c = Math.floor(x / CELL_SIZE);
-    if (r === this.exitCell.r && c === this.exitCell.c) return true;
-    const world = this._cellToWorld(this.exitCell.r, this.exitCell.c);
-    const dx = x - world.x;
-    const dz = z - world.z;
+  // Test whether world position matches the player's exit
+  _isPlayerExitPos(player, x, z) {
+    const pos = player && player.exitPos ? player.exitPos : null;
+    if (!pos) {
+      // fall back to room-wide exit
+      if (!this.exitCell || !this.maze) return false;
+      pos = this._cellToWorld(this.exitCell.r, this.exitCell.c);
+    }
+    const dx = x - pos.x;
+    const dz = z - pos.z;
     const thresh = CELL_SIZE * 0.4;
     return dx * dx + dz * dz < thresh * thresh;
   }
@@ -453,6 +461,8 @@ class Room {
     player.yaw = 0;
     player.pitch = 0;
     player._exitTriggered = true;
+    // update their personal exitPos for next maze
+    player.exitPos = this._cellToWorld(exitCell.r, exitCell.c);
 
     const count = base.enemies || 5;
     const enemyPositions = this._generateEnemyPositions(rows, cols, count);

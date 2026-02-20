@@ -340,8 +340,8 @@ io.on('connection', (socket) => {
       player.pitch = Number(data.pitch) || 0;
       player.sprinting = !!data.sprinting;
 
-      // Detect exit crossing server-side to avoid client race
-      if (room._isExitPos(player.x, player.z)) {
+      // Detect exit crossing server-side using player-specific exitPos
+      if (room._isPlayerExitPos(player, player.x, player.z)) {
         console.log(
           `[Server] player ${socket.id}${player.persistentId ? ' (pid=' + player.persistentId + ')' : ''} hit exit at`,
           player.x.toFixed(2),
@@ -635,8 +635,11 @@ setInterval(() => {
 
     // Periodic exit check (in case move event wasn't triggered)
     for (const [pid, pl] of room.players.entries()) {
-      if (pl.alive && !pl._exitTriggered && room._isExitPos(pl.x, pl.z)) {
-        console.log(`[Server] periodic exit hit for ${pid}`);
+      if (
+        pl.alive &&
+        !pl._exitTriggered &&
+        room._isPlayerExitPos(pl, pl.x, pl.z)
+      ) {
         pl._exitTriggered = true;
         room.advancePlayerLevel(pid, (playerId, payload) => {
           io.to(playerId).emit('playerLevelAdvanced', payload);

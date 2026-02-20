@@ -751,11 +751,11 @@ export class MenuView {
     urlGroup.appendChild(urlInput);
     this._subContainer.appendChild(urlGroup);
 
-    const connectBtn = this._makeButton('CONNECT', '#00cc44', () => {
+    // use _addButton helper instead of _makeButton (MenuView has its own helper)
+    this._addButton(this._subContainer, 'CONNECT', '#00cc44', () => {
       this.net.disconnect();
       this.net.connect(this.settings.serverUrl);
     });
-    this._subContainer.appendChild(connectBtn);
 
     if (this._lobbyView) {
       this._lobbyView.setContainer(this._subContainer);
