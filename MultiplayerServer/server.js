@@ -326,6 +326,11 @@ io.on('connection', (socket) => {
 
     // Detect exit crossing server-side to avoid client race
     if (room._isExitPos(player.x, player.z)) {
+      console.log(
+        `[Server] player ${socket.id} hit exit at`,
+        player.x.toFixed(2),
+        player.z.toFixed(2),
+      );
       // Advance only once per crossing; store flag on player object temporarily
       if (!player._exitTriggered) {
         player._exitTriggered = true;
@@ -590,6 +595,16 @@ setInterval(() => {
         y: resp.y,
         z: resp.z,
       });
+    }
+
+    // Periodic exit check (in case move event wasn't triggered)
+    for (const [pid, pl] of room.players.entries()) {
+      if (pl.alive && room._isExitPos(pl.x, pl.z)) {
+        console.log(`[Server] periodic exit hit for ${pid}`);
+        room.advancePlayerLevel(pid, (playerId, payload) => {
+          io.to(playerId).emit('playerLevelAdvanced', payload);
+        });
+      }
     }
 
     // Broadcast full game state for reconciliation

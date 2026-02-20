@@ -449,6 +449,14 @@ class Room {
         enemies: enemyPositions,
       });
     }
+
+    // Server-side reposition so movement events align immediately
+    const pl = this.players.get(playerId);
+    if (pl) {
+      const world = this._cellToWorld(startCell.r, startCell.c);
+      pl.x = world.x;
+      pl.z = world.z;
+    }
   }
 
   /**

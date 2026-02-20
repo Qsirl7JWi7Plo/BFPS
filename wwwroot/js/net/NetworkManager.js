@@ -243,6 +243,15 @@ export class NetworkManager {
         this.view.syncCamera();
       }
 
+      // Show level-up overlay
+      if (this.view) {
+        this.view.showOverlay(
+          `<div style="text-align:center;"><h1>Level ${data.level + 1}</h1>` +
+            `<p>Welcome to your personal maze!</p></div>`,
+          2000,
+        );
+      }
+
       // Spawn server-provided enemies (client-side visuals/AI)
       if (this.view && this.view.spawnEnemiesFromServer) {
         this.view.spawnEnemiesFromServer(data.enemies || []);
