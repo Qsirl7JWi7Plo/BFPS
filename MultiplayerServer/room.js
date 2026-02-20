@@ -411,7 +411,7 @@ class Room {
    */
   // Test whether world position matches the player's exit
   _isPlayerExitPos(player, x, z) {
-    const pos = player && player.exitPos ? player.exitPos : null;
+    let pos = player && player.exitPos ? player.exitPos : null;
     if (!pos) {
       // fall back to room-wide exit
       if (!this.exitCell || !this.maze) return false;
