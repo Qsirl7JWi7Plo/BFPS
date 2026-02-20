@@ -6,7 +6,7 @@
 
 const { Server } = require('socket.io');
 const http = require('http');
-const { Room } = require('./room.js');
+const { Room, LEVELS } = require('./room.js');
 const { isBlocked, raycastPlayers } = require('./collision.js');
 
 const PORT = process.env.PORT || 8080;
@@ -28,6 +28,14 @@ const io = new Server(httpServer, {
 
 httpServer.listen(PORT, () => {
   console.log(`[Server] Listening on port ${PORT}`);
+});
+
+// error hooks to log any uncaught exceptions/rejections
+process.on('uncaughtException', (err) => {
+  console.error('[Server] uncaughtException', err, err && err.stack);
+});
+process.on('unhandledRejection', (reason, p) => {
+  console.error('[Server] unhandledRejection', reason, p);
 });
 
 /** @type {Map<string, Room>} roomId → Room */
@@ -279,79 +287,83 @@ io.on('connection', (socket) => {
 
   /* ── Player movement ────────────────────────────────────── */
   socket.on('move', (data) => {
-    const roomId = playerRooms.get(socket.id);
-    if (!roomId) return;
-    const room = rooms.get(roomId);
-    if (!room || room.state !== 'playing') return;
-    const player = room.players.get(socket.id);
-    if (!player || !player.alive) return;
+    try {
+      const roomId = playerRooms.get(socket.id);
+      if (!roomId) return;
+      const room = rooms.get(roomId);
+      if (!room || room.state !== 'playing') return;
+      const player = room.players.get(socket.id);
+      if (!player || !player.alive) return;
 
-    // Validate position — reject if blocked
-    const newX = Number(data.x) || 0;
-    const newZ = Number(data.z) || 0;
+      // Validate position — reject if blocked
+      const newX = Number(data.x) || 0;
+      const newZ = Number(data.z) || 0;
 
-    // Anti-teleport: check distance moved (max ~1 unit per tick at 20Hz)
-    const dx = newX - player.x;
-    const dz = newZ - player.z;
-    const distSq = dx * dx + dz * dz;
-    const maxMoveDist = 3.0; // generous limit (sprint + frame variance)
-    if (distSq > maxMoveDist * maxMoveDist) {
-      // Teleport detected — reject silently
-      socket.emit('positionCorrection', {
-        x: player.x,
-        y: player.y,
-        z: player.z,
-      });
-      return;
-    }
-
-    // Check wall collision on server
-    if (!isBlocked(room.maze, newX, newZ, 0.4)) {
-      player.x = newX;
-      player.z = newZ;
-    } else {
-      // Send correction to client
-      socket.emit('positionCorrection', {
-        x: player.x,
-        y: player.y,
-        z: player.z,
-      });
-      return;
-    }
-
-    player.y = Number(data.y) || 2;
-    player.yaw = Number(data.yaw) || 0;
-    player.pitch = Number(data.pitch) || 0;
-    player.sprinting = !!data.sprinting;
-
-    // Detect exit crossing server-side to avoid client race
-    if (room._isExitPos(player.x, player.z)) {
-      console.log(
-        `[Server] player ${socket.id} hit exit at`,
-        player.x.toFixed(2),
-        player.z.toFixed(2),
-      );
-      // Advance only once per crossing; store flag on player object temporarily
-      if (!player._exitTriggered) {
-        player._exitTriggered = true;
-        room.advancePlayerLevel(socket.id, (pid, payload) => {
-          io.to(pid).emit('playerLevelAdvanced', payload);
+      // Anti-teleport: check distance moved (max ~1 unit per tick at 20Hz)
+      const dx = newX - player.x;
+      const dz = newZ - player.z;
+      const distSq = dx * dx + dz * dz;
+      const maxMoveDist = 3.0; // generous limit (sprint + frame variance)
+      if (distSq > maxMoveDist * maxMoveDist) {
+        // Teleport detected — reject silently
+        socket.emit('positionCorrection', {
+          x: player.x,
+          y: player.y,
+          z: player.z,
         });
+        return;
       }
-    } else {
-      player._exitTriggered = false;
-    }
 
-    // Broadcast to other players in the room
-    socket.to(`room:${room.id}`).emit('playerMoved', {
-      id: socket.id,
-      x: player.x,
-      y: player.y,
-      z: player.z,
-      yaw: player.yaw,
-      pitch: player.pitch,
-      sprinting: player.sprinting,
-    });
+      // Check wall collision on server
+      if (!isBlocked(room.maze, newX, newZ, 0.4)) {
+        player.x = newX;
+        player.z = newZ;
+      } else {
+        // Send correction to client
+        socket.emit('positionCorrection', {
+          x: player.x,
+          y: player.y,
+          z: player.z,
+        });
+        return;
+      }
+
+      player.y = Number(data.y) || 2;
+      player.yaw = Number(data.yaw) || 0;
+      player.pitch = Number(data.pitch) || 0;
+      player.sprinting = !!data.sprinting;
+
+      // Detect exit crossing server-side to avoid client race
+      if (room._isExitPos(player.x, player.z)) {
+        console.log(
+          `[Server] player ${socket.id} hit exit at`,
+          player.x.toFixed(2),
+          player.z.toFixed(2),
+        );
+        // Advance only once per crossing; store flag on player object temporarily
+        if (!player._exitTriggered) {
+          player._exitTriggered = true;
+          room.advancePlayerLevel(socket.id, (pid, payload) => {
+            io.to(pid).emit('playerLevelAdvanced', payload);
+          });
+        }
+      } else {
+        player._exitTriggered = false;
+      }
+
+      // Broadcast to other players in the room
+      socket.to(`room:${room.id}`).emit('playerMoved', {
+        id: socket.id,
+        x: player.x,
+        y: player.y,
+        z: player.z,
+        yaw: player.yaw,
+        pitch: player.pitch,
+        sprinting: player.sprinting,
+      });
+    } catch (err) {
+      console.error('[Server] move handler exception:', err, err.stack);
+    }
   });
 
   /* ── Shooting (server-authoritative hit detection) ──────── */

@@ -441,13 +441,21 @@ class Room {
     map.set(level, enemyPositions);
     this.playerEnemies.set(playerId, map);
     if (emitFn) {
-      emitFn(playerId, {
-        maze,
-        startCell,
-        exitCell,
-        level,
-        enemies: enemyPositions,
-      });
+      try {
+        emitFn(playerId, {
+          maze,
+          startCell,
+          exitCell,
+          level,
+          enemies: enemyPositions,
+        });
+      } catch (e) {
+        console.error(
+          '[Room] error emitting playerLevelAdvanced to',
+          playerId,
+          e,
+        );
+      }
     }
 
     // Server-side reposition so movement events align immediately
