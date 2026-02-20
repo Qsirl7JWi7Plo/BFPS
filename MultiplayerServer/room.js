@@ -388,6 +388,70 @@ class Room {
   }
 
   /**
+   * Test whether a world-space position lies inside the exit cell.
+   * Used server-side to detect gate crossings before client reports them.
+   * @param {number} x
+   * @param {number} z
+   * @returns {boolean}
+   */
+  _isExitPos(x, z) {
+    if (!this.exitCell || !this.maze) return false;
+    const r = Math.floor(z / CELL_SIZE);
+    const c = Math.floor(x / CELL_SIZE);
+    if (r === this.exitCell.r && c === this.exitCell.c) return true;
+    const world = this._cellToWorld(this.exitCell.r, this.exitCell.c);
+    const dx = x - world.x;
+    const dz = z - world.z;
+    const thresh = CELL_SIZE * 0.4;
+    return dx * dx + dz * dz < thresh * thresh;
+  }
+
+  /**
+   * Advance an individual player's personal level and send them the payload.
+   * @param {string} playerId
+   * @param {(playerId:string, payload:object)=>void} emitFn
+   */
+  advancePlayerLevel(playerId, emitFn) {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.level = (player.level || 0) + 1;
+    const level = player.level;
+    const base = LEVELS[Math.min(level, LEVELS.length - 1)] || LEVELS[0];
+    const rows = base.rows;
+    const cols = base.cols;
+    const maze = this.flatArena
+      ? {
+          grid: Array.from({ length: rows }, () =>
+            Array.from({ length: cols }, () => ({
+              north: true,
+              south: true,
+              east: true,
+              west: true,
+            })),
+          ),
+          rows,
+          cols,
+        }
+      : generateMaze(rows, cols);
+    const startCell = { r: 0, c: 0 };
+    const exitCell = { r: rows - 1, c: cols - 1 };
+    const count = base.enemies || 5;
+    const enemyPositions = this._generateEnemyPositions(rows, cols, count);
+    const map = this.playerEnemies.get(playerId) || new Map();
+    map.set(level, enemyPositions);
+    this.playerEnemies.set(playerId, map);
+    if (emitFn) {
+      emitFn(playerId, {
+        maze,
+        startCell,
+        exitCell,
+        level,
+        enemies: enemyPositions,
+      });
+    }
+  }
+
+  /**
    * Get full game state for sync.
    */
   getGameState() {

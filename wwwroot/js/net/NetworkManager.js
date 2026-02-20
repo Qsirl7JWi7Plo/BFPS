@@ -211,6 +211,22 @@ export class NetworkManager {
     // Per-player level advancement from server (personal maze + enemies)
     s.on('playerLevelAdvanced', (data) => {
       console.log('[Net] Player level advanced →', data.level);
+
+      // Ensure the local player is placed at the server-provided start cell
+      if (data.startCell) {
+        const world = this.model.cellToWorld(
+          data.startCell.r,
+          data.startCell.c,
+        );
+        this.model.player.x = world.x;
+        this.model.player.z = world.z;
+        this.model.player.y = 2;
+        this.model.player.yaw = 0;
+        this.model.player.pitch = 0;
+        this.model.player.alive = true;
+        this.model.player.health = 100;
+      }
+
       if (data.maze) {
         // Replace local maze with server-provided maze for this player
         this.model.applyServerMaze(
@@ -220,6 +236,13 @@ export class NetworkManager {
           data.level,
         );
       }
+
+      // Rebuild view so the new start position and maze take effect immediately
+      if (this.view) {
+        this.view.buildLevel();
+        this.view.syncCamera();
+      }
+
       // Spawn server-provided enemies (client-side visuals/AI)
       if (this.view && this.view.spawnEnemiesFromServer) {
         this.view.spawnEnemiesFromServer(data.enemies || []);

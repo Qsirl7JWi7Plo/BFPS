@@ -293,7 +293,13 @@ export class GameModel {
   isAtExit() {
     if (!this.exitCell || !this.maze) return false;
     const cell = this.worldToCell(this.player.x, this.player.z);
-    return cell.r === this.exitCell.r && cell.c === this.exitCell.c;
+    if (cell.r === this.exitCell.r && cell.c === this.exitCell.c) return true;
+    // also allow small radius around exit center to account for fast movement
+    const exitWorld = this.cellToWorld(this.exitCell.r, this.exitCell.c);
+    const dx = this.player.x - exitWorld.x;
+    const dz = this.player.z - exitWorld.z;
+    const thresh = this.cellSize * 0.4;
+    return dx * dx + dz * dz < thresh * thresh;
   }
 
   /**

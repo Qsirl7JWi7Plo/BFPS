@@ -558,7 +558,17 @@ function gameLoop() {
 
   // Multiplayer: if player reaches the exit, notify server so their personal level can advance
   if (model.multiplayer && net.inGame && !model.bossLevel) {
+    if (model.isAtExit()) {
+      console.log(
+        '[Debug] multiplayer exit check, player pos',
+        model.player.x.toFixed(2),
+        model.player.z.toFixed(2),
+        'exitCell',
+        model.exitCell,
+      );
+    }
     if (model.isAtExit() && levelTransitionCooldown <= 0) {
+      console.log('[Net] sending playerReachedExit');
       net.sendPlayerReachedExit();
       levelTransitionCooldown = 120; // prevent repeat sends for ~2 seconds
     }

@@ -324,6 +324,19 @@ io.on('connection', (socket) => {
     player.pitch = Number(data.pitch) || 0;
     player.sprinting = !!data.sprinting;
 
+    // Detect exit crossing server-side to avoid client race
+    if (room._isExitPos(player.x, player.z)) {
+      // Advance only once per crossing; store flag on player object temporarily
+      if (!player._exitTriggered) {
+        player._exitTriggered = true;
+        room.advancePlayerLevel(socket.id, (pid, payload) => {
+          io.to(pid).emit('playerLevelAdvanced', payload);
+        });
+      }
+    } else {
+      player._exitTriggered = false;
+    }
+
     // Broadcast to other players in the room
     socket.to(`room:${room.id}`).emit('playerMoved', {
       id: socket.id,
